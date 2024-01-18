@@ -1,5 +1,6 @@
 package com.example.pagi
 
+import android.content.Context
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 
@@ -13,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.paging.Pager
@@ -39,11 +41,13 @@ import java.io.IOException
 import androidx.recyclerview.widget.LinearLayoutManager
 
 
-class MainActivity : AppCompatActivity() {
-    //private  val PAGE_SIZE = 1
+class MainActivity : AppCompatActivity() ,LoadingCallback{
+    override fun showLoading(isLoading: Boolean) {
+        binding.progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+    }
+    private  val PAGE_SIZE = 4
     private lateinit var binding: ActivityMainBinding
     private lateinit var postAdapter: PostAdapter
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,39 +65,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchData() {
-        binding.progressBar.visibility=View.VISIBLE
+        //binding.progressBar.visibility = View.VISIBLE
+        Toast.makeText(this, "fetchdat1", Toast.LENGTH_SHORT).show()
+
         val retrofit = Retrofit.Builder()
             .baseUrl("https://jsonplaceholder.typicode.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-
+        binding.progressBar.visibility = View.GONE
+        Toast.makeText(this, "fetchdat2", Toast.LENGTH_SHORT).show()
         val apiService = retrofit.create(ApiService::class.java)
 
-        val postPagingSource = { PostPagingSource(apiService) }
+        val postPagingSource = { PostPagingSource(apiService,this) }
 
         lifecycleScope.launch {
-            Pager(
-                config = PagingConfig(pageSize = 2),
-                pagingSourceFactory = postPagingSource
-            ).flow
-                .cachedIn(lifecycleScope)
-                .collectLatest { pagingData ->
-                    postAdapter.submitData(pagingData)
-                }
+            try {
+                Pager(
+                    config = PagingConfig(pageSize = 2),
+                    pagingSourceFactory = postPagingSource
+
+                ).flow
+                    .cachedIn(lifecycleScope)
+                    .collectLatest { pagingData ->
+                        postAdapter.submitData(pagingData)
+                    }
+            } catch (e: Exception) {
+                // Handle exceptions if needed
+                e.printStackTrace()
+            } finally {
+            }
         }
-        binding.progressBar.visibility=View.GONE
     }
+
+
 }
 
 private const val INITIAL_PAGE = 0
-class PostPagingSource(private val apiService: ApiService) : PagingSource<Int, Post>() {
+class PostPagingSource(
+    private val apiService: ApiService,
+    private val loadingCallback: LoadingCallback
+) : PagingSource<Int, Post>() {
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Post> {
+        loadingCallback.showLoading(true) // Show progress bar
+
         val position = params.key ?: INITIAL_PAGE
 
         return try {
             val response = apiService.getPosts(position * PAGE_SIZE, PAGE_SIZE)
             val posts = response.body() ?: emptyList()
+
+            loadingCallback.showLoading(false) // Hide progress bar
 
             LoadResult.Page(
                 data = posts,
@@ -101,8 +123,10 @@ class PostPagingSource(private val apiService: ApiService) : PagingSource<Int, P
                 nextKey = if (posts.isEmpty()) null else position + 1
             )
         } catch (e: IOException) {
+            loadingCallback.showLoading(false) // Hide progress bar
             LoadResult.Error(e)
         } catch (e: HttpException) {
+            loadingCallback.showLoading(false) // Hide progress bar
             LoadResult.Error(e)
         }
     }
@@ -110,6 +134,10 @@ class PostPagingSource(private val apiService: ApiService) : PagingSource<Int, P
     override fun getRefreshKey(state: PagingState<Int, Post>): Int? {
         return state.anchorPosition
     }
+}
+
+interface LoadingCallback {
+    fun showLoading(isLoading: Boolean)
 }
 
 
@@ -163,4 +191,3 @@ class PostAdapter : PagingDataAdapter<Post, PostAdapter.PostViewHolder>(POST_COM
         }
     }
 }
-
